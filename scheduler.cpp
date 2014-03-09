@@ -45,7 +45,7 @@ class FIFO_Scheduler: public Scheduler {
 	{
 		if(readyQueue.empty())
 		{
-			throw exception( "no more process to schedule" );
+			throw exception();
 		}
 		Process *p = readyQueue.front();
 		readyQueue.pop_front();
@@ -93,6 +93,15 @@ void push_in_eventsList(Event *event,int time)
 
 Scheduler *scheduler;
 
+class CPU_Burst_Complete_Event: public Event{
+	public:
+	CPU_Burst_Complete_Event(Process *process,int timestamp,int start_time)
+	:Event(process,timestamp,start_time)
+	{}
+
+	void perform();
+};
+
 class IO_Burst_Complete_Event: public Event{
 	public:
 	IO_Burst_Complete_Event(Process *process,int timestamp,int start_time)
@@ -105,7 +114,7 @@ class IO_Burst_Complete_Event: public Event{
 		current_time = timestamp;
 		readyQueue.push_back(process);
 		cout << endl << "==> " << current_time << " " << process->ID << " ts="
-			<< start_time << " BLOCK  dur=" << current_time - start_time
+			<< start_time << " READY  dur=" << current_time - start_time
 			<< endl;
 		cout << "T(" << process->ID << ":" << current_time << "): BLOCK -> READY"
 			<< endl;
@@ -113,53 +122,20 @@ class IO_Burst_Complete_Event: public Event{
 		{
 			return;
 		}
-		int random = myrandom(process->IO);
-		IO_Burst_Complete_Event *ibce  =
-			 new IO_Burst_Complete_Event(process,current_time +random
-							,current_time);
-		//(p_next->TC) -= random;//check for total and quartz?
-		cout << endl << "==> " << current_time << " " << process->ID << " ts="
-			<< start_time << " BLOCK  dur=" << current_time - start_time
-			<< endl;
-		cout << "T(" << process->ID << ":" << current_time << "): RUNNG -> BLOCK ib="
-			<< random << " rem=" << process->TC << endl;
-		push_in_eventsList(ibce,current_time);
-		cout << "cpuburst" << endl;
-	}
-};
-
-class CPU_Burst_Complete_Event: public Event{
-	public:
-	CPU_Burst_Complete_Event(Process *process,int timestamp,int start_time)
-	:Event(process,timestamp,start_time)
-	{}
-
-	void perform()
-	{
-		eventsList.pop_front();
-		current_time = timestamp;
-		process->TC -= current_time - start_time;
-		int random = myrandom(process->IO);
-		IO_Burst_Complete_Event *ibce  =
-			 new IO_Burst_Complete_Event(process,current_time +random
-							,current_time);
-		//(p_next->TC) -= random;//check for total and quartz?
-		cout << endl << "==> " << current_time << " " << process->ID << " ts="
-			<< start_time << " BLOCK  dur=" << current_time - start_time
-			<< endl;
-		cout << "T(" << process->ID << ":" << current_time << "): RUNNG -> BLOCK ib="
-			<< random << " rem=" << process->TC << endl;
-		push_in_eventsList(ibce,current_time);
-		try{
+		try{//turn this into a function?
 			Process *p_next = scheduler->schedule_next();
 			int random = myrandom(p_next->CB);
+			if(p_next->TC<random)
+			{
+				random = p_next->TC;
+			}
 			CPU_Burst_Complete_Event *cbce  =
 				 new CPU_Burst_Complete_Event(p_next,current_time +random
 								,current_time);
 			//(p_next->TC) -= random;//check for total and quartz?
-			cout << endl << "==> " << current_time << " " << process->ID << " ts="
+			cout << endl << "==> " << current_time << " " << p_next->ID << " ts="
 				<< current_time	<< " RUNNG  dur=0" << endl;
-			cout << "T(" << process->ID << ":" << current_time
+			cout << "T(" << p_next->ID << ":" << current_time
 			<< "): READY -> RUNNG  cb=" << random << " rem="
 			<< p_next->TC << endl;
 			push_in_eventsList(cbce,current_time);
@@ -169,6 +145,49 @@ class CPU_Burst_Complete_Event: public Event{
 	}
 };
 
+	void CPU_Burst_Complete_Event::perform(){
+		eventsList.pop_front();
+		current_time = timestamp;
+		process->TC -= current_time - start_time;
+		cout << endl << "==> " << current_time << " " << process->ID << " ts="
+			<< start_time << " BLOCK  dur=" << current_time - start_time
+			<< endl;
+		if(process->TC==0)
+		{
+			cout << "==> T(" << process->ID << "): Done" << endl;	
+		}else
+		{
+			int random = myrandom(process->IO);
+			IO_Burst_Complete_Event *ibce  =
+				 new IO_Burst_Complete_Event(process,current_time +random
+								,current_time);
+			//(p_next->TC) -= random;//check for total and quartz?
+			cout << "T(" << process->ID << ":" << current_time
+				<< "): RUNNG -> BLOCK  ib="
+				<< random << " rem=" << process->TC << endl;
+			push_in_eventsList(ibce,current_time);
+		}
+		try{//turn this into a function?
+			Process *p_next = scheduler->schedule_next();
+			int random = myrandom(p_next->CB);
+			if(p_next->TC<random)
+			{
+				random = p_next->TC;
+			}
+			CPU_Burst_Complete_Event *cbce  =
+				 new CPU_Burst_Complete_Event(p_next,current_time +random
+								,current_time);
+			//(p_next->TC) -= random;//check for total and quartz?
+			cout << endl << "==> " << current_time << " " << p_next->ID << " ts="
+				<< current_time	<< " RUNNG  dur=0" << endl;
+			cout << "T(" << p_next->ID << ":" << current_time
+			<< "): READY -> RUNNG  cb=" << random << " rem="
+			<< p_next->TC << endl;
+			push_in_eventsList(cbce,current_time);
+		}catch(const exception& e){
+			return;
+		}
+	}
 class Init_Event: public Event{
 	public:
 	Init_Event(Process *process)
@@ -192,6 +211,10 @@ class Init_Event: public Event{
 		}
 		Process *p_next = scheduler->schedule_next();
 		int random = myrandom(p_next->CB);
+		if(p_next->TC<random)
+		{
+			random = p_next->TC;
+		}
 		CPU_Burst_Complete_Event *cbce  =
 			 new CPU_Burst_Complete_Event(p_next,current_time +random
 							,current_time);
