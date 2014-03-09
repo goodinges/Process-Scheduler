@@ -20,12 +20,11 @@ set<int> IO_util;
 
 int myrandom(int burst)
 	{
-		if (ofs<rand_count-1)
+		if (ofs==rand_count)
 		{
-			return 1 + (randvals[ofs++] % burst);
+			ofs=0;
 		}
-		ofs = 0;
-		return 1 + (randvals[rand_count]  % burst);
+		return 1 + (randvals[ofs++] % burst);	
 	}
 
 class Process {
@@ -61,7 +60,6 @@ class FIFO_Scheduler: public Scheduler {
 //		cout << (*ci)->ID;
 //	}cout << endl;
 		readyQueue.pop_front();
-
 		return p;
 	}
 };
@@ -69,7 +67,7 @@ class FIFO_Scheduler: public Scheduler {
 class Event{
 	public:
 	Process *process;
-	Event(Process *process,int timestamp,int start_time)
+	Event(Process *process,int timestamp,int start_time)//start_time: create time, timestamp: event time
 		:process(process),timestamp(timestamp),start_time(start_time)
 		{}
 	int timestamp;
@@ -91,10 +89,9 @@ struct is_bigger
     }
 };
 
-void push_in_eventsList(Event *event,int time)
+void push_in_eventsList(Event *event)
 {
-	time = event->timestamp;
-	//cout << "push " << (event->process)->ID << " " << time <<endl;
+	int time = event->timestamp;
 	list<Event*>::iterator found = find_if(eventsList.begin(),eventsList.end(),
 						is_bigger(time));
 	if (found==eventsList.end())
@@ -102,9 +99,7 @@ void push_in_eventsList(Event *event,int time)
 		eventsList.push_back(event);
 	}else{
 		eventsList.insert(found,event);
-//cout << (*found)->timestamp << "**";
 	}
-//	cout << "result " << endl;
 }
 
 Scheduler *scheduler;
@@ -118,6 +113,33 @@ class CPU_Burst_Complete_Event: public Event{
 	void perform();
 };
 
+void run_a_new_process()
+{
+		try{//turn this into a function?
+			Process *p_next = scheduler->schedule_next();
+			int random = myrandom(p_next->CB);
+			if(p_next->TC_remain<random)
+			{
+				random = p_next->TC_remain;
+			}
+			CPU_Burst_Complete_Event *cbce  =
+				 new CPU_Burst_Complete_Event(p_next,current_time +random
+								,current_time);
+			CPU_engaged = true;
+			//(p_next->TC_remain) -= random;//check for total and quartz?
+			cout << endl << "==> " << current_time << " " << p_next->ID << " ts="
+				<< p_next->CW_start_time << " RUNNG  dur="
+				<< current_time - p_next->CW_start_time << endl;
+			cout << "T(" << p_next->ID << ":" << current_time
+			<< "): READY -> RUNNG  cb=" << random << " rem="
+			<< p_next->TC_remain << endl;
+//			cout<< "CPU burst push request for CPU" <<endl;
+			push_in_eventsList(cbce);
+			p_next->CW += current_time - p_next->CW_start_time;
+		}catch(const exception& e){
+			return;
+		}
+}
 class IO_Burst_Complete_Event: public Event{
 	public:
 	IO_Burst_Complete_Event(Process *process,int timestamp,int start_time)
@@ -148,89 +170,44 @@ class IO_Burst_Complete_Event: public Event{
 				cout << "   delay scheduler" << endl;
 				return;
 			}
-			try{//turn this into a function?
-				Process *p_next = scheduler->schedule_next();
-				int random = myrandom(p_next->CB);
-				if(p_next->TC_remain<random)
-				{
-					random = p_next->TC_remain;
-				}
-				CPU_Burst_Complete_Event *cbce  =
-					 new CPU_Burst_Complete_Event(p_next,current_time +random
-									,current_time);
-				CPU_engaged = true;
-				//(p_next->TC_remain) -= random;//check for total and quartz?
-				cout << endl << "==> " << current_time << " "
-					<< p_next->ID << " ts="
-					<< current_time	<< " RUNNG  dur="
-					<< current_time - process->CW_start_time << endl;
-				cout << "T(" << p_next->ID << ":" << current_time
-				<< "): READY -> RUNNG  cb=" << random << " rem="
-				<< p_next->TC_remain << endl;
-				push_in_eventsList(cbce,current_time);
-				process->CW += current_time - process->CW_start_time;
-			}catch(const exception& e){
-				return;
-			}
+			run_a_new_process();
 		}
 	}
 };
 
-	void CPU_Burst_Complete_Event::perform(){
+void CPU_Burst_Complete_Event::perform(){
 //		cout << "CPU burst" << endl;
-		eventsList.pop_front();
-		current_time = timestamp;
-		process->TC_remain -= current_time - start_time;
-		CPU_util += current_time - start_time;
-		CPU_engaged = false;
-		cout << endl << "==> " << current_time << " " << process->ID << " ts="
-			<< start_time << " BLOCK  dur=" << current_time - start_time
-			<< endl;
-		if(process->TC_remain==0)
-		{
-			cout << "==> T(" << process->ID << "): Done" << endl;
-			process->FT = current_time;
-			process->TT = current_time - process->AT;
-			last_event_finish_time = current_time;
-			
-		}else
-		{
-			int random = myrandom(process->IO);
-			IO_Burst_Complete_Event *ibce  =
-				 new IO_Burst_Complete_Event(process,current_time +random
-								,current_time);
-			//(p_next->TC_remain) -= random;//check for total and quartz?
-			cout << "T(" << process->ID << ":" << current_time
-				<< "): RUNNG -> BLOCK  ib="
-				<< random << " rem=" << process->TC_remain << endl;
+	eventsList.pop_front();
+	current_time = timestamp;
+	process->TC_remain -= current_time - start_time;
+	CPU_util += current_time - start_time;
+	CPU_engaged = false;
+	cout << endl << "==> " << current_time << " " << process->ID << " ts="
+		<< start_time << " BLOCK  dur=" << current_time - start_time
+		<< endl;
+	if(process->TC_remain==0)
+	{
+		cout << "==> T(" << process->ID << "): Done" << endl;
+		process->FT = current_time;
+		process->TT = current_time - process->AT;
+		last_event_finish_time = current_time;
+		
+	}else
+	{
+		int random = myrandom(process->IO);
+		IO_Burst_Complete_Event *ibce  =
+			 new IO_Burst_Complete_Event(process,current_time +random
+							,current_time);
+		//(p_next->TC_remain) -= random;//check for total and quartz?
+		cout << "T(" << process->ID << ":" << current_time
+			<< "): RUNNG -> BLOCK  ib="
+			<< random << " rem=" << process->TC_remain << endl;
 //			cout<< "CPU burst push request for IO" <<endl;
-			push_in_eventsList(ibce,current_time);
-		}
-		try{//turn this into a function?
-			Process *p_next = scheduler->schedule_next();
-			int random = myrandom(p_next->CB);
-			if(p_next->TC_remain<random)
-			{
-				random = p_next->TC_remain;
-			}
-			CPU_Burst_Complete_Event *cbce  =
-				 new CPU_Burst_Complete_Event(p_next,current_time +random
-								,current_time);
-			CPU_engaged = true;
-			//(p_next->TC_remain) -= random;//check for total and quartz?
-			cout << endl << "==> " << current_time << " " << p_next->ID << " ts="
-				<< process->CW_start_time << " RUNNG  dur="
-				<< current_time - process->CW_start_time << endl;
-			cout << "T(" << p_next->ID << ":" << current_time
-			<< "): READY -> RUNNG  cb=" << random << " rem="
-			<< p_next->TC_remain << endl;
-//			cout<< "CPU burst push request for CPU" <<endl;
-			push_in_eventsList(cbce,current_time);
-			process->CW += current_time - process->CW_start_time;
-		}catch(const exception& e){
-			return;
-		}
+		push_in_eventsList(ibce);
 	}
+	run_a_new_process();
+}
+
 class Init_Event: public Event{
 	public:
 	Init_Event(Process *process)
@@ -257,22 +234,7 @@ class Init_Event: public Event{
 				cout << "   delay scheduler" << endl;
 				return;
 			}
-			Process *p_next = scheduler->schedule_next();
-			int random = myrandom(p_next->CB);
-			if(p_next->TC_remain<random)
-			{
-				random = p_next->TC_remain;
-			}
-			CPU_Burst_Complete_Event *cbce  =
-				 new CPU_Burst_Complete_Event(p_next,current_time +random
-								,current_time);
-			//(p_next->TC_remain) -= random;//check for total and quartz?
-			cout << endl << "==> " << current_time << " " << p_next->ID << " ts="
-				<< process->CW_start_time << " RUNNG  dur=0" << endl;
-			cout << "T(" << p_next->ID << ":" << current_time
-				<< "): READY -> RUNNG  cb="
-				<< random << " rem=" << p_next->TC_remain << endl;
-			push_in_eventsList(cbce,current_time);
+			run_a_new_process();
 		}
 	}
 };
@@ -282,7 +244,7 @@ int main()
 	//list<int> testlist;
 	//testlist.push_back(3);
 	//cout << testlist.front() << endl;
-	ifstream infile("input1");
+	ifstream infile("input5");
 	scheduler = new FIFO_Scheduler();
 	ifstream randfile("rfile");
 	randfile >> rand_count;
@@ -304,10 +266,10 @@ int main()
 	
 	while(eventsList.empty()!=true)
 	{
-		for (list<Event*>::const_iterator ci = eventsList.begin(); ci != eventsList.end(); ci++)
+/*		for (list<Event*>::const_iterator ci = eventsList.begin(); ci != eventsList.end(); ci++)
 		{
 			cout << ((*ci)->process)->ID << "("<< ((*ci)->timestamp) <<")";
-		}cout << endl;
+		}cout << endl;*/
 		eventsList.front()->perform();
 	}
 	cout << "FCFS" << endl;
