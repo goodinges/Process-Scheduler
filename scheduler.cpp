@@ -115,29 +115,38 @@ class CPU_Burst_Complete_Event: public Event{
 
 void run_a_new_process()
 {
-		try{//turn this into a function?
-			Process *p_next = scheduler->schedule_next();
-			int random = myrandom(p_next->CB);
-			if(p_next->TC_remain<random)
-			{
-				random = p_next->TC_remain;
+		if(!CPU_engaged)
+		{
+				if(eventsList.empty()==false &&
+					 eventsList.front()->timestamp == current_time)
+				{
+					cout << "   delay scheduler" << endl;
+					return;
+				}
+			try{
+				Process *p_next = scheduler->schedule_next();
+				int random = myrandom(p_next->CB);
+				if(p_next->TC_remain<random)
+				{
+					random = p_next->TC_remain;
+				}
+				CPU_Burst_Complete_Event *cbce  =
+					 new CPU_Burst_Complete_Event(p_next,current_time +random
+									,current_time);
+				CPU_engaged = true;
+				//(p_next->TC_remain) -= random;//check for total and quartz?
+				cout << endl << "==> " << current_time << " " << p_next->ID << " ts="
+					<< p_next->CW_start_time << " RUNNG  dur="
+					<< current_time - p_next->CW_start_time << endl;
+				cout << "T(" << p_next->ID << ":" << current_time
+				<< "): READY -> RUNNG  cb=" << random << " rem="
+				<< p_next->TC_remain << endl;
+	//			cout<< "CPU burst push request for CPU" <<endl;
+				push_in_eventsList(cbce);
+				p_next->CW += current_time - p_next->CW_start_time;
+			}catch(const exception& e){
+				return;
 			}
-			CPU_Burst_Complete_Event *cbce  =
-				 new CPU_Burst_Complete_Event(p_next,current_time +random
-								,current_time);
-			CPU_engaged = true;
-			//(p_next->TC_remain) -= random;//check for total and quartz?
-			cout << endl << "==> " << current_time << " " << p_next->ID << " ts="
-				<< p_next->CW_start_time << " RUNNG  dur="
-				<< current_time - p_next->CW_start_time << endl;
-			cout << "T(" << p_next->ID << ":" << current_time
-			<< "): READY -> RUNNG  cb=" << random << " rem="
-			<< p_next->TC_remain << endl;
-//			cout<< "CPU burst push request for CPU" <<endl;
-			push_in_eventsList(cbce);
-			p_next->CW += current_time - p_next->CW_start_time;
-		}catch(const exception& e){
-			return;
 		}
 }
 class IO_Burst_Complete_Event: public Event{
@@ -162,16 +171,7 @@ class IO_Burst_Complete_Event: public Event{
 			<< endl;
 		cout << "T(" << process->ID << ":" << current_time << "): BLOCK -> READY"
 			<< endl;
-		if(!CPU_engaged)
-		{
-			if(eventsList.empty()==false &&
-				 eventsList.front()->timestamp == timestamp)
-			{
-				cout << "   delay scheduler" << endl;
-				return;
-			}
 			run_a_new_process();
-		}
 	}
 };
 
@@ -217,34 +217,19 @@ class Init_Event: public Event{
 	{
 		eventsList.pop_front();
 		readyQueue.push_back(process);
-		if(current_time<timestamp)
-		{
-			current_time = timestamp;
-		}
+		current_time = timestamp;
 		process->CW_start_time = current_time;
 		cout << endl << "==> " << current_time << " " << process->ID << " ts="
 			<< current_time	<< " READY  dur=0" << endl;
 		cout << "T(" << process->ID << ":" << current_time << "): READY -> READY"
 			<< endl;
-		if(!CPU_engaged)
-		{
-			if(eventsList.empty()==false &&
-				 eventsList.front()->timestamp == timestamp)
-			{
-				cout << "   delay scheduler" << endl;
-				return;
-			}
-			run_a_new_process();
-		}
+		run_a_new_process();
 	}
 };
 
 int main()
 {
-	//list<int> testlist;
-	//testlist.push_back(3);
-	//cout << testlist.front() << endl;
-	ifstream infile("input5");
+	ifstream infile("input3");
 	scheduler = new FIFO_Scheduler();
 	ifstream randfile("rfile");
 	randfile >> rand_count;
