@@ -7,18 +7,21 @@
 #include <set>
 using namespace std;
 
+//Control variables
 int current_time = 0;
 int *randvals;
 int rand_count;
 int ofs = 0;
 bool CPU_engaged = false;
 int RRquantum = 0;
+int vflag = 0;
 
 //reporting variables
 int last_event_finish_time = 0;
 int CPU_util = 0;
 set<int> IO_util;
 
+//The random generator (reader)
 int myrandom(int burst)
 	{
 		if (ofs==rand_count)
@@ -28,6 +31,7 @@ int myrandom(int burst)
 		return 1 + (randvals[ofs++] % burst);	
 	}
 
+//Process objects hold all information about a process and it's state
 class Process {
 	public:
 	int AT, TC, CB, IO, ID, FT, TT, IT, CW, CW_start_time, TC_remain, burst, burst_remain;
@@ -37,8 +41,10 @@ class Process {
 		}
 };
 
+//List of processes in Ready mode
 list<Process*> readyQueue;
 
+//The Top parent scheduler class which all kind of schedulers can derive from it
 class Scheduler {
 	public:
 	virtual Process *schedule_next()
@@ -46,6 +52,7 @@ class Scheduler {
 	}
 };
 
+//First come first served scheduler class
 class FCFS_Scheduler: public Scheduler {
 	public:
 	Process *schedule_next()
@@ -55,16 +62,12 @@ class FCFS_Scheduler: public Scheduler {
 			throw exception();
 		}
 		Process *p = readyQueue.front();
-//	cout << "--";
-//	for (list<Process*>::const_iterator ci = readyQueue.begin(); ci != readyQueue.end(); ci++)
-//	{
-//		cout << (*ci)->ID;
-//	}cout << endl;
 		readyQueue.pop_front();
 		return p;
 	}
 };
 
+//Last come first served scheduler class
 class LCFS_Scheduler: public Scheduler {
 	public:
 	Process *schedule_next()
@@ -79,10 +82,12 @@ class LCFS_Scheduler: public Scheduler {
 	}
 };
 
+//A predicator used in SFJ scheduler
 bool isSmaller(Process *p1, Process *p2)
 {
 	return (p1->TC_remain) < (p2->TC_remain);
 }
+//Shortest job first scheduler
 class SJF_Scheduler: public Scheduler {
 	public:
 	Process *schedule_next()
@@ -100,6 +105,7 @@ class SJF_Scheduler: public Scheduler {
 	}
 };
 
+//RoundRobin scheduler
 class RR_Scheduler: public Scheduler {
 	public:
 	Process *schedule_next()
@@ -114,6 +120,7 @@ class RR_Scheduler: public Scheduler {
 	}
 };
 
+//The top parent event class, all kind of events are derived from this class
 class Event{
 	public:
 	Process *process;
@@ -127,8 +134,10 @@ class Event{
 	}
 };
 
+//DES queue or list of events to happen
 list<Event*> eventsList;
 
+//A predecate to be used in DES queue
 struct is_bigger
 {
     is_bigger(int time) : time(time) {}
@@ -139,6 +148,7 @@ struct is_bigger
     }
 };
 
+//A function to push the events in their correct places
 void push_in_eventsList(Event *event)
 {
 	int time = event->timestamp;
@@ -152,8 +162,10 @@ void push_in_eventsList(Event *event)
 	}
 }
 
+//The scheduler obkect to be used in the program
 Scheduler *scheduler;
 
+//The event which happens when a CPU burst is finished
 class CPU_Burst_Complete_Event: public Event{
 	public:
 	CPU_Burst_Complete_Event(Process *process,int timestamp,int start_time)
@@ -163,6 +175,7 @@ class CPU_Burst_Complete_Event: public Event{
 	void perform();
 };
 
+//To schedule and run a new process in CPU, events use this function
 void run_a_new_process()
 {
 		if(!CPU_engaged)
@@ -170,7 +183,7 @@ void run_a_new_process()
 				if(eventsList.empty()==false &&
 					 eventsList.front()->timestamp == current_time)
 				{
-					cout << "   delay scheduler" << endl;
+					if(vflag){cout << "   delay scheduler" << endl;}
 					return;
 				}
 			try{
@@ -192,19 +205,20 @@ void run_a_new_process()
 					if(RRquantum < burst)
 					{
 						burst = RRquantum;
-	//					p_next->burst_remain = burst;
 					}
 				}
 				CPU_Burst_Complete_Event *cbce  =
 					 new CPU_Burst_Complete_Event(p_next,current_time +burst
 									,current_time);
 				CPU_engaged = true;
+				if(vflag){
 				cout << endl << "==> " << current_time << " " << p_next->ID << " ts="
 					<< p_next->CW_start_time << " RUNNG  dur="
 					<< current_time - p_next->CW_start_time << endl;
 				cout << "T(" << p_next->ID << ":" << current_time
 				<< "): READY -> RUNNG  cb=" << p_next->burst_remain << " rem="
 				<< p_next->TC_remain << endl;
+				}
 				push_in_eventsList(cbce);
 				p_next->CW += current_time - p_next->CW_start_time;
 			}catch(const exception& e){
@@ -212,6 +226,8 @@ void run_a_new_process()
 			}
 		}
 }
+
+//The event class which occurs when an IO burst is completed
 class IO_Burst_Complete_Event: public Event{
 	public:
 	IO_Burst_Complete_Event(Process *process,int timestamp,int start_time)
@@ -229,15 +245,18 @@ class IO_Burst_Complete_Event: public Event{
 		}
 		readyQueue.push_back(process);
 		process->CW_start_time = current_time;
+		if(vflag){
 		cout << endl << "==> " << current_time << " " << process->ID << " ts="
 			<< start_time << " READY  dur=" << current_time - start_time
 			<< endl;
 		cout << "T(" << process->ID << ":" << current_time << "): BLOCK -> READY"
 			<< endl;
+		}
 		run_a_new_process();
 	}
 };
 
+//Implemention of the CPU burst event
 void CPU_Burst_Complete_Event::perform(){
 	eventsList.pop_front();
 	current_time = timestamp;
@@ -247,18 +266,22 @@ void CPU_Burst_Complete_Event::perform(){
 	CPU_engaged = false;
 	if (process->burst_remain > 0)
 	{
+		if(vflag){
 		cout << endl << "==> " << current_time << " " << process->ID << " ts="
 			<< start_time << " PREEMPT  dur=" << current_time - start_time
 			<< endl;
+		}
 	}else
 	{
+		if(vflag){
 		cout << endl << "==> " << current_time << " " << process->ID << " ts="
 			<< start_time << " BLOCK  dur=" << current_time - start_time
 			<< endl;
+		}
 	}
 	if(process->TC_remain==0)
 	{
-		cout << "==> T(" << process->ID << "): Done" << endl;
+		if(vflag){cout << "==> T(" << process->ID << "): Done" << endl;}
 		process->FT = current_time;
 		process->TT = current_time - process->AT;
 		last_event_finish_time = current_time;
@@ -269,24 +292,25 @@ void CPU_Burst_Complete_Event::perform(){
 		{
 			readyQueue.push_back(process);
 			process->CW_start_time = current_time;
-			cout << "T(" << process->ID << ":" << current_time << "): RUNNG -> READY  cb="
-				<< process->burst_remain << " rem=" << process->TC_remain << endl;
+			if(vflag){cout << "T(" << process->ID << ":" << current_time << "): RUNNG -> READY  cb="
+				<< process->burst_remain << " rem=" << process->TC_remain << endl;}
 		}else{
 			int random = myrandom(process->IO);
 			IO_Burst_Complete_Event *ibce  =
 				 new IO_Burst_Complete_Event(process,current_time +random
 								,current_time);
-			//(p_next->TC_remain) -= random;//check for total and quartz?
-			cout << "T(" << process->ID << ":" << current_time
+			if(vflag){cout << "T(" << process->ID << ":" << current_time
 				<< "): RUNNG -> BLOCK  ib="
 				<< random << " rem=" << process->TC_remain << endl;
-	//			cout<< "CPU burst push request for IO" <<endl;
+			}
 			push_in_eventsList(ibce);
 		}
 	}
 	run_a_new_process();
 }
 
+//A different event that is generated only when the program starts to push
+//processes into ready queue when they arrive
 class Init_Event: public Event{
 	public:
 	Init_Event(Process *process)
@@ -298,20 +322,53 @@ class Init_Event: public Event{
 		readyQueue.push_back(process);
 		current_time = timestamp;
 		process->CW_start_time = current_time;
-		cout << endl << "==> " << current_time << " " << process->ID << " ts="
+		if(vflag){cout << endl << "==> " << current_time << " " << process->ID << " ts="
 			<< current_time	<< " READY  dur=0" << endl;
 		cout << "T(" << process->ID << ":" << current_time << "): READY -> READY"
 			<< endl;
+		}
 		run_a_new_process();
 	}
 };
 
+//Program starts here!
 int main(int argc, char *argv[])
 {
-	ifstream infile(argv[1]);
-	scheduler = new RR_Scheduler();
-	RRquantum = 20;
-	ifstream randfile("rfile");
+	char *svalue = NULL;
+	int c;
+	int index;
+	while ((c = getopt (argc, argv, "vs:")) != -1)
+	{
+		switch (c)
+		{
+			case 'v':
+			vflag = 1;
+			break;
+			case 's':
+			svalue = optarg;
+			break;
+			default:
+			abort ();
+		}
+	}
+	ifstream infile(argv[optind]);
+	ifstream randfile(argv[optind+1]);
+	RRquantum = 0;
+	switch(svalue[0])
+	{
+		case 'F':
+		scheduler = new FCFS_Scheduler();
+		break;
+		case 'L':
+		scheduler = new LCFS_Scheduler();
+		break;
+		case 'S':
+		scheduler = new SJF_Scheduler();
+		break;
+		case 'R':
+		scheduler = new RR_Scheduler();
+		RRquantum = atoi(svalue+1);
+	}
 	randfile >> rand_count;
 	randvals = new int[rand_count];
 	for(int i=0;i<rand_count;i++)
@@ -337,7 +394,20 @@ int main(int argc, char *argv[])
 		}cout << endl;*/
 		eventsList.front()->perform();
 	}
-	cout << "SFJ" << endl;//fix this
+	switch(svalue[0])
+	{
+		case 'F':
+		cout << "FCFS" << endl;
+		break;
+		case 'L':
+		cout << "LCFS" << endl;
+		break;
+		case 'S':
+		cout << "SJF" << endl;
+		break;
+		case 'R':
+		cout << "RR " << atoi(svalue+1) << endl;
+	}
 	for (list<Process*>::const_iterator ci = processes.begin(); ci != processes.end(); ci++)
 	{
 		printf("%04d: %4d %4d %4d %4d | %4d %4d %4d %4d\n",(*ci)->ID,(*ci)->AT,
